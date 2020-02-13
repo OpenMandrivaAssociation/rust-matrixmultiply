@@ -1,0 +1,120 @@
+From 75015d9073da5c2a399363d7d4bf8c0efb8f5182 Mon Sep 17 00:00:00 2001
+From: bluss <bluss@users.noreply.github.com>
+Date: Sun, 22 Sep 2019 16:40:42 +0200
+Subject: [PATCH] TEST: check tests for non-x86 (and fix tests for that)
+
+---
+ .travis.yml         | 18 ++++++++++++------
+ src/dgemm_kernel.rs | 11 +++++++----
+ src/sgemm_kernel.rs | 11 +++++++----
+ 3 files changed, 26 insertions(+), 14 deletions(-)
+
+diff --git a/.travis.yml b/.travis.yml
+index 78291f053452..ad52951b4664 100644
+--- a/.travis.yml
++++ b/.travis.yml
+@@ -51,13 +51,19 @@ install:
+ # the main build
+ script:
+   - |
++      set -e &&
++      set -v &&
+       rustc --print cfg -Ctarget-cpu=native &&
+-      cargo build --target=$TARGET &&
+-      ([ -n "$BUILD_ONLY" ] || (
+-      cargo test --target=$TARGET &&
+-      cargo test --release --target=$TARGET &&
+-      cargo doc --target=$TARGET &&
+-      cargo bench --target=$TARGET ))
++      cargo build -v --target=$TARGET && (
++      if [ -n "$BUILD_ONLY" ]; then
++        cargo check --tests -v --target=$TARGET &&
++        cargo doc -v --target=$TARGET
++      else
++        cargo test -v --target=$TARGET &&
++        cargo test -v --release --target=$TARGET &&
++        cargo doc -v --target=$TARGET &&
++        cargo bench -v --target=$TARGET
++      fi)
+ 
+ branches:
+   only:
+diff --git a/src/dgemm_kernel.rs b/src/dgemm_kernel.rs
+index 26d2f09c7f71..f9837921dca8 100644
+--- a/src/dgemm_kernel.rs
++++ b/src/dgemm_kernel.rs
+@@ -814,10 +814,12 @@ mod tests {
+     use super::*;
+     use aligned_alloc::Alloc;
+ 
+-    fn aligned_alloc<T>(elt: T, n: usize) -> Alloc<T> where T: Copy
++    fn aligned_alloc<K>(elt: K::Elem, n: usize) -> Alloc<K::Elem>
++        where K: GemmKernel,
++              K::Elem: Copy,
+     {
+         unsafe {
+-            Alloc::new(n, KernelAvx::align_to()).init_with(elt)
++            Alloc::new(n, K::align_to()).init_with(elt)
+         }
+     }
+ 
+@@ -827,8 +829,8 @@ mod tests {
+         const K: usize = 4;
+         let mr = K::MR;
+         let nr = K::NR;
+-        let mut a = aligned_alloc(1., mr * K);
+-        let mut b = aligned_alloc(0., nr * K);
++        let mut a = aligned_alloc::<K>(1., mr * K);
++        let mut b = aligned_alloc::<K>(0., nr * K);
+         for (i, x) in a.iter_mut().enumerate() {
+             *x = i as _;
+         }
+@@ -850,6 +852,7 @@ mod tests {
+     }
+ 
+     #[test]
++    #[cfg(any(target_arch="x86", target_arch="x86_64"))]
+     fn test_loop_m_n() {
+         let mut m = [[0; 4]; KernelAvx::MR];
+         loop_m!(i, loop4!(j, m[i][j] += 1));
+diff --git a/src/sgemm_kernel.rs b/src/sgemm_kernel.rs
+index 96f042ce6864..4d9884d42f92 100644
+--- a/src/sgemm_kernel.rs
++++ b/src/sgemm_kernel.rs
+@@ -501,10 +501,12 @@ mod tests {
+     use super::*;
+     use aligned_alloc::Alloc;
+ 
+-    fn aligned_alloc<T>(elt: T, n: usize) -> Alloc<T> where T: Copy
++    fn aligned_alloc<K>(elt: K::Elem, n: usize) -> Alloc<K::Elem>
++        where K: GemmKernel,
++              K::Elem: Copy,
+     {
+         unsafe {
+-            Alloc::new(n, KernelAvx::align_to()).init_with(elt)
++            Alloc::new(n, K::align_to()).init_with(elt)
+         }
+     }
+ 
+@@ -514,8 +516,8 @@ mod tests {
+         const K: usize = 4;
+         let mr = K::MR;
+         let nr = K::NR;
+-        let mut a = aligned_alloc(1., mr * K);
+-        let mut b = aligned_alloc(0., nr * K);
++        let mut a = aligned_alloc::<K>(1., mr * K);
++        let mut b = aligned_alloc::<K>(0., nr * K);
+         for (i, x) in a.iter_mut().enumerate() {
+             *x = i as _;
+         }
+@@ -536,6 +538,7 @@ mod tests {
+         test_a_kernel::<KernelFallback>("kernel");
+     }
+ 
++    #[cfg(any(target_arch="x86", target_arch="x86_64"))]
+     #[test]
+     fn test_loop_m_n() {
+         let mut m = [[0; KernelAvx::NR]; KernelAvx::MR];
+-- 
+2.23.0
+
